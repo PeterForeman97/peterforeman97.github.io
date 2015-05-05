@@ -266,7 +266,7 @@
 			// using ideal lens equation:
 			// tan r = (1/f)(x) + tan i	
 			// where x is the distance from the intersection point to the midpoint of the lens
-			var angleRefraction = Math.atan(this.diopters * -1 * (offset - this.line.length/2) + Math.tan(realAngleIncidence));
+			var angleRefraction = Math.atan(this.diopters * (this.start.y < this.end.y ? -1 : 1) * (offset - this.line.length/2) + Math.tan(realAngleIncidence));
 			return new RefractedAngle(angleRefraction, realAngleIncidence);
 		}
 		Lens.prototype.remove = function(){
