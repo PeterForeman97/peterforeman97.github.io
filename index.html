@@ -61,14 +61,10 @@
 			lightSourcePosition = source.end;
 			// read ray density input value
 			var rayDensity = parseFloat($("#ray_density").val());
-			// ensure number of rays value is within 6-5000 inclusive
-			// (lower than 6 is useless for displaying refraction, over 2000 will cause browser to freeze for significant time)
-			if(rayDensity < 6){
-				alert("Please enter a value of 6 to 2000 inclusive");
-				return;
-			}
-			if(rayDensity > 2000){
-				alert("Please enter a value of 6 to 2000 inclusive");
+			// ensure number of rays value is within 7-5000 inclusive
+			// (lower than 7 is useless for displaying refraction, over 2000 will cause browser to freeze for significant time)
+			if(isNaN(rayDensity) || !(/^[\d]+$/.test($("#ray_density").val())) || rayDensity < 7 || rayDensity > 2000){
+				alert("Please enter a value of 7 to 2000 inclusive");
 				return;
 			}
 			// remove all rays
@@ -172,8 +168,12 @@
 			this.focalLength = parseFloat($("#lens_focal_length").val());
 			// ensure focal length is not 0 (creates invalid arcs that crash paper.js library)
 			if(this.focalLength == 0){
-				alert("0 focal length is not permitted. A value of 1 has been assumed");
-				this.focalLength = 1;
+				alert("0 focal length is not permitted. A value of 100 has been assumed");
+				this.focalLength = 100;
+			// ensure focal length is numeric
+			} else if(isNaN(this.focalLength) || !(/^-?[\d]+(.\d+)?$/.test($("#lens_focal_length").val()))){
+				alert("Invalid focal length entered. A value of 100 has been assumed");
+				this.focalLength = 100;
 			}
 			// calculate lens power 
 			this.diopters = 1/this.focalLength;
@@ -277,6 +277,11 @@
 		function Refractor(){
 			// parse refractive index from input
 			this.refractiveIndex = parseFloat($("#refractor_index").val());
+			// validate refractive index is numeric
+			if(isNaN(this.refractiveIndex) || !(/^-?[\d]+(.\d+)?$/.test($("#refractor_index").val()))){
+				alert("Invalid refractive index entered. A value of 1 has been assumed");
+				this.refractiveIndex = 1;
+			}
 			// create path to hold line representing refractor
 			this.line = new Path();
 			// set collision test part of this object to be the line
@@ -288,7 +293,7 @@
 				strokeWidth: 5.0,
 				strokeColor: '#00ff33'
 			};
-			// default values for start/end point of the refrator
+			// default values for start/end point of the refractor
 			this.start = new Point(0, 0);
 			this.end = new Point(0, 0);
 		};
