@@ -1,0 +1,513 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"> <!-- mark as compatible with latest version of internet explorer -->
+    <title>Light and Lenses Simulation</title>
+
+    <style type="text/css">
+        html, body, div, dl, dt, dd, ul, ol, li, h1, h2, h3, h4, h5, h6, pre, form, fieldset, input, p, blockquote, th, td { margin: 0; padding: 0; font-weight: 400; }
+        img, body, html, table, tr, td, th, a, a:hover, a:active, a:focus, a:link { border: 0; outline: 0; }
+        address, caption, cite, code, dfn, em, strong, th, var, a { font-style: normal; font-weight: normal; text-decoration: none; }
+
+		html { font-family: "Segoe UI", Tahoma, sans-serif; font-size: 13px; color: #000; background: #fff; }
+
+        #controls { float: right; margin: 10px; padding: 10px; border: 1px solid #ccc; background: #f6f6f6; }
+		strong { font-weight: bold; }
+		#workarea { border: 1px solid #666; margin: 10px; cursor: crosshair; }
+		table { border-collapse: collapse; background: #f6f6f6; }
+		td { border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 7px; }
+		tr:first-child td { border-top: 0; }
+		tr:last-child td { border-bottom: 0; }
+		input[type="text"] { width: 60px; padding: 2px 5px; }
+		button { margin: 2px 0px; }		
+    </style>
+
+    <script type="text/javascript" src="jquery-2.1.3.min.js"></script>
+    <script type="text/javascript" src="paper-full.js"></script>
+	<script type="text/javascript">
+		// set mouse speed to up to 200 frames per second
+		var updateSpeed = 1000/200; 
+	</script>
+	<!--[if IE]>
+	<script type="text/javascript">
+		// set mouse speed to up to 40 frames per second in internet explorer only
+		updateSpeed = 1000/40; 
+	</script>
+	<![endif]-->
+	<script type="text/paperscript" canvas="workarea">
+		// paper group holding all light rays as children
+		var rays = new Group();
+		// paper group holding all light rays that have been totally internally reflected (to be displayed in different colour)
+		var totalInternallyReflectedRays = new Group();		
+		// x/y coordinates of light source
+		var lightSourcePosition = new Point(0, view.size.height/2);
+		// array of all lens/refractor objects
+		var objects = [];
+		// object currently being drawn, or null if no object is being drawn
+		var currentObject = null;
+		// constant to convert degrees to radians
+		var toRadians = (Math.PI / 180);
+		// constant to convert radians to degrees
+		var toDegrees = (180 / Math.PI);
+		// object representing light source
+		var source = new Source();
+		// time of last mouse movement update in milliseconds
+		var lastUpdate = Date.now();		
+
+		// redraw all light rays with ray casting calculation
+		function updateLightSource(){
+			// update internal light source position from source object
+			lightSourcePosition = source.end;
+			// read ray density input value
+			var rayDensity = parseFloat($("#ray_density").val());
+			// ensure number of rays value is within 6-5000 inclusive
+			// (lower than 6 is useless for displaying refraction, over 2000 will cause browser to freeze for significant time)
+			if(rayDensity < 6){
+				alert("Please enter a value of 6 to 2000 inclusive");
+				return;
+			}
+			if(rayDensity > 2000){
+				alert("Please enter a value of 6 to 2000 inclusive");
+				return;
+			}
+			// remove all rays
+			rays.removeChildren();
+			totalInternallyReflectedRays.removeChildren();
+			// loop in semi-circle of (ray density) angles around x-axis
+			for(var i = -90; i <= 90; i += 180/(rayDensity-1)){
+				// path to hold positions representing this light ray
+				var line = new Path();
+				// start light ray at light source
+				var start = lightSourcePosition;
+				// place end point off screen along x axis
+				var end = start + new Point(view.size.width * 20, 0);
+				// rotate end point by initial angle around start point
+				end = end.rotate(i, start);
+				// add start and end points to line
+				line.add(start);
+				line.add(end);
+				// table of objects that have been handled by the ray caster, to prevent handling more than once
+				// stored as 'objects' array position => true
+				var testedObjects = {};
+				// nearest intersection point and object intersected with
+				var nearestIntersection;
+				var nearestObject;
+				// loop continually (end condition comes later)
+				while(true){
+					// reset nearest intersection values
+					nearestIntersection = null;
+					nearestObject = -1;
+					// loop through all objects
+					for(var j = 0; j < objects.length; j++){
+						// if object has already been collided with then skip
+						if(testedObjects[j])
+							continue;
+						// find intersection points between light ray and object
+						var intersections = line.getIntersections(objects[j].collider);
+						// if they intersect
+						if(intersections.length > 0){
+							// if the length along the light ray ('offset') is less than the previous smallest value found then store new nearest
+							if(nearestIntersection === null || intersections[0].offset < nearestIntersection.offset){
+								nearestIntersection = intersections[0];
+								nearestObject = j;
+							}
+						}
+					}
+					// if no intersections have occurred then end while loop (ray will continue out of screen)
+					if(nearestObject === -1)
+						break;
+					// remember the current intersected object to ensure it is not tested again
+					testedObjects[nearestObject] = true;
+					// get refracted angle in degrees
+					var angle = objects[nearestObject].getAngle(
+						// radian angle between second-to-last point of light ray and last point of light ray
+						Math.atan2(
+							line.lastSegment.point.y - line.lastSegment.previous.point.y, 	
+							line.lastSegment.point.x - line.lastSegment.previous.point.x
+						),
+						nearestIntersection.point, // point of intersection
+						line // entire light ray
+					);
+					// remove end point of light ray (at this stage it is off screen)
+					line.lastSegment.remove();
+					// use point of intersection as end point of light ray
+					line.add(nearestIntersection.point);
+					// place additional point (new end point) off screen along x axis
+					var end = nearestIntersection.point + new Point(view.size.width * 20, 0);
+					// rotate additional point by initial angle around start point
+					end = end.rotate(angle.angleDegrees, nearestIntersection.point);
+					// if angle is beyond 90 degrees in either direction then total internal reflection has occurred
+					if(angle.isTotalInternal){
+						// create separate line between intersection point and off-screen end point
+						var newLine = new Path([nearestIntersection.point, end]);
+						// add to group of totally internally reflected rays
+						totalInternallyReflectedRays.addChild(newLine);
+					} else {
+						// add off-screen end point to ray
+						line.add(end);
+					}
+				}	
+				
+				// add ray to rays group
+				rays.addChild(line);
+			}	
+			// colour light rays red
+			rays.style = {
+				strokeWidth: 1.0,
+				strokeColor: '#0033ff'
+			};
+			// colour totally internally reflected rays purple
+			totalInternallyReflectedRays.style = {
+				strokeWidth: 1.0,
+				strokeColor: '#ff33ff'
+			};
+			// force redraw (normally only draws when mouse cursor moves over canvas)
+			paper.view.draw();
+		}
+
+		// object representing lenses
+		function Lens(){
+			// read focal length from input
+			this.focalLength = parseFloat($("#lens_focal_length").val());
+			// ensure focal length is not 0 (creates invalid arcs that crash paper.js library)
+			if(this.focalLength == 0){
+				alert("0 focal length is not permitted. A value of 1 has been assumed");
+				this.focalLength = 1;
+			}
+			// calculate lens power 
+			this.diopters = 1/this.focalLength;
+			// fixed refractive index of 0.52 (glass lens is typically 1.52, minus 1 for the fact this simulation disregards air)
+			this.refractiveIndex = 0.52;
+			// radius of arcs
+			this.r1 = this.r2 = 20;
+			// flip either r1 or r2 sign depending on convex or concave lens
+			if(this.focalLength > 0)
+				this.r2 *= -1;
+			else
+				this.r1 *= -1;
+			// create paths to hold centre line of lens and each side's arc
+			this.line = new Path();
+			this.curve1 = new Path();
+			this.curve2 = new Path();
+			// add the above to group
+			this.group = new Group([this.line, this.curve1, this.curve2]);
+			// display centre line as red line
+			this.line.style = {
+				strokeWidth: 3.0,
+				strokeColor: '#ff3300'
+			};
+			// display arc curves as orange dotted lines
+			this.curveStyle = {
+				strokeWidth: 3.0,
+				strokeColor: '#ff9900',
+				dashArray: [10, 4]
+			}
+			// default values for start/end point of lens
+			this.start = new Point(0, 0);
+			this.end = new Point(0, 0);
+		};
+		// update function for lenses (runs for each mouse movement as they are being drawn)
+		Lens.prototype.update = function(){
+			// remove line and arcs
+			this.line.removeSegments();
+			this.curve1.remove();
+			this.curve2.remove();
+			// skip if the start point has not been placed (i.e. mouse button has not been pressed yet)
+			if(this.start.length > 0){
+				// draw centre line of lens between start and end points
+				this.line.addSegments([this.start, this.end]);
+				// calculate mid point of centre line
+				var midpoint = this.line.getPointAt(this.line.length/2);
+				// calculate normal of centre line
+				var normal1 = this.line.getNormalAt(0).normalize();
+				var normal2 = this.line.getNormalAt(0).normalize();
+				// scale normals by r1/r2 values, swapping them if the lens has been drawn upside down
+				if(this.start.y < this.end.y){
+					normal1.length = this.r2;
+					normal2.length = this.r1;
+				} else {
+					normal1.length = this.r1;
+					normal2.length = this.r2;			
+				}				
+				if(this.focalLength > 0){
+					// draw arcs for convex lens (starting and ending touching centre line and curving out to the middle plus radius)
+					this.curve1 = Path.Arc(this.start, midpoint + normal1, this.end);
+					this.curve2 = Path.Arc(this.start, midpoint + normal2, this.end);
+				} else {
+					// draw arcs for concave lens (starting and ending offset by radius and curving into the middle)
+					// a small scale factor of 10% is used for visual clarity and to prevent an infinite loop issue with certain arc shapes in the paper.js library
+					this.curve1 = Path.Arc(this.start + normal1 * 1.1, midpoint + normal1 * 0.1, this.end + normal1 * 1.1);
+					this.curve2 = Path.Arc(this.start + normal2 * 1.1, midpoint + normal2 * 0.1, this.end + normal2 * 1.1);			
+				}
+				// set collision test part of this object to be the centre line
+				this.collider = this.line;
+				// update styling of arcs
+				this.curve1.style = this.curveStyle;
+				this.curve2.style = this.curveStyle;
+				// add new arcs to group
+				this.group.addChildren([this.curve1, this.curve2]);
+			}
+			// force style update
+			this.group.style = this.group.style.clone();
+			// redraw light rays
+			updateLightSource();
+		};
+		Lens.prototype.getAngle = function(angleIncidence, pointOfIntersection, ray){
+			// calculate distance along lens of intersection point
+			var offset = this.line.getOffsetOf(pointOfIntersection);		
+			// calculate normal to lens
+			var normal = this.line.getNormalAt(offset);
+			// flip normal if lens was drawn upside down
+			if(this.start.y > this.end.y)
+				normal *= -1;
+			// calculate angle of incidence taking into account the normal
+			var realAngleIncidence = angleIncidence - normal.angleInRadians;
+			// using ideal lens equation:
+			// tan r = (1/f)(x) + tan i	
+			// where x is the distance from the intersection point to the midpoint of the lens
+			var angleRefraction = Math.atan(this.diopters * -1 * (offset - this.line.length/2) + Math.tan(realAngleIncidence));
+			return new RefractedAngle(angleRefraction, realAngleIncidence);
+		}
+		Lens.prototype.remove = function(){
+			this.group.remove();
+		}
+
+		// object representing refractors
+		function Refractor(){
+			// parse refractive index from input
+			this.refractiveIndex = parseFloat($("#refractor_index").val());
+			// create path to hold line representing refractor
+			this.line = new Path();
+			// set collision test part of this object to be the line
+			this.collider = this.line;
+			// add line to group
+			this.group = new Group(this.line);
+			// set line colour to green
+			this.group.style = {
+				strokeWidth: 5.0,
+				strokeColor: '#00ff33'
+			};
+			// default values for start/end point of the refrator
+			this.start = new Point(0, 0);
+			this.end = new Point(0, 0);
+		};
+		Refractor.prototype.update = function(){
+			// update line to new start and end points
+			this.line.removeSegments();
+			if(this.start.length > 0)
+				this.line.addSegments([this.start, this.end]);
+			// redraw light rays
+			updateLightSource();
+		};
+		Refractor.prototype.getAngle = function(angleIncidence, pointOfIntersection, ray){		
+			// calculate distance along lens of intersection point
+			var offset = this.line.getOffsetOf(pointOfIntersection);		
+			// calculate normal to lens
+			var normal = this.line.getNormalAt(offset);
+			// flip normal if lens was drawn upside down
+			if(this.start.y > this.end.y)
+				normal *= -1;
+			// calculate angle of incidence taking into account the normal
+			var realAngleIncidence = angleIncidence - normal.angleInRadians;
+			// calculate angle of refraction using Snell's law:
+			// sin r = (sin i) / n
+			var angleRefraction = Math.asin(Math.sin(realAngleIncidence) / this.refractiveIndex);
+			return new RefractedAngle(angleRefraction, realAngleIncidence);
+		}
+		Refractor.prototype.remove = function(){
+			this.group.remove();
+		}
+
+		// object representing the light source
+		function Source(){
+			this.start = lightSourcePosition;
+			this.end = lightSourcePosition;	
+		}
+		Source.prototype.update = function(){
+			// redraw light rays
+			updateLightSource();
+		};
+		
+		// object representing an angle of refraction, including a flag of whether the angle is the result of total internal reflection
+		function RefractedAngle(angleRefraction, angleIncidence){
+			this.isTotalInternal = false;
+			// Math.asin returns NaN when a value is out of range, which is also when total internal reflection applies
+			if(isNaN(angleRefraction)){
+				// update angle of refraction with reflection of angle of incidence
+				angleRefraction = angleIncidence * -1 + Math.PI;
+				this.isTotalInternal = true;
+			}
+			// store refraction angle in both degrees and radians forms
+			this.angleRadians = angleRefraction;
+			this.angleDegrees = angleRefraction * toDegrees;			
+		}
+
+		// group to hold gridlines
+		var grid = new Group();
+		// draw horizontal gridlines
+		for(var i = 0; i < view.size.height; i+=50){
+			grid.addChild(new Path([new Point(0, i), new Point(view.size.width, i)]));
+		}
+		// draw vertical gridlines
+		for(var i = 0; i < view.size.width; i+=50){
+			grid.addChild(new Path([new Point(i, 0), new Point(i, view.size.height)]));	
+		}
+		// set grid to light grey
+		grid.style = {
+			strokeWidth: 0.4,
+			strokeColor: '#aaa'
+		};
+	
+		// draw initial light rays
+		updateLightSource();
+
+		// handle mouse button press on work area
+		function onMouseDown(event){
+			// if an object is being placed
+			if(currentObject !== null){
+				// set the start point of the object to the position of the mouse cursor
+				currentObject.start = event.point;
+			}
+		}
+
+		// handle mouse movement on work area
+		function onMouseMove(event){
+			// if an object is being placed
+			if(currentObject !== null){
+				// if updateSpeed milliseconds have passed since the last update
+				if(lastUpdate < Date.now() - updateSpeed){
+					// set the end point of the object to the position of the mouse cursor
+					currentObject.end = event.point;
+					// set the x position of the end point to match the start x position, so that all objects are vertical lines
+					if(!(currentObject instanceof Source))
+						currentObject.end.x = currentObject.start.x;
+					// update object with new position and redraw light rays accordingly
+					currentObject.update();
+					// set lastUpdate to time in milliseconds
+					lastUpdate = Date.now();
+				}
+			}	
+		}
+
+		// handle mouse button release on work area
+		function onMouseUp(event){
+			// set currentObject to null, representing the fact that an object is no longer being placed
+			currentObject = null;
+			// update status message to show Idle status
+			$("#creating").text("Idle");
+		}
+				
+		$("#lens_create").click(function(){
+			// handle creation of Lens object
+			currentObject = new Lens();
+			objects.push(currentObject);
+			$("#creating").text("Creating Lens");
+		});
+
+		$("#refractor_create").click(function(){
+			// handle creation of Refractor object
+			currentObject = new Refractor();
+			objects.push(currentObject);
+			$("#creating").text("Creating Refractor");
+		});
+
+		$("#set_ray_density").click(function(){
+			// redraw light rays (will read new input value for number of rays in this function)
+			updateLightSource();
+		});
+
+		$("#move_source").click(function(){
+			// set currentObject to source, so that the source object is positioned by the mouse cursor
+			currentObject = source;
+			$("#creating").text("Moving Source");
+		});
+
+		$("#undo").click(function(){
+			// remove last object from objects array
+			var object = objects.pop();
+			// if a valid object was retrieved
+			if(typeof object !== "undefined")
+				// remove visible parts of object
+				object.remove();
+			// redraw light rays
+			updateLightSource();
+		});
+		
+		$("#grid").on('change', function(){
+			grid.visible = this.checked;
+			updateLightSource();
+		});
+
+		$("#reset").click(function(){
+			// while objects array is not empty
+			while(objects.length > 0){
+				// remove last object from objects array
+				var object = objects.pop();
+				// remove visible parts of object
+				object.remove();
+			}
+			// redraw light rays
+			updateLightSource();
+		});
+
+		// make pressing enter when typing in an input field trigger the associated button to be clicked
+		$("#ray_density").keyup(function(e){
+			if(e.keyCode === 13){
+				$("#set_ray_density").click();
+			}
+		});
+		$("#lens_focal_length").keyup(function(e){
+			if(e.keyCode === 13){
+				$("#lens_create").click();
+			}
+		});
+		$("#refractor_index").keyup(function(e){
+			if(e.keyCode === 13){
+				$("#refractor_create").click();
+			}
+		});
+		
+	</script>
+</head>
+<body>
+	<div id="controls">
+		<table>
+			<tr>
+				<td>Focal length: </td>
+				<td><input id="lens_focal_length" type="text" value="100" /></td>
+				<td><button id="lens_create" type="button">Create Ideal Lens</button></td>
+			</tr>
+			<tr>
+				<td>Refractive Index: </td>
+				<td><input id="refractor_index" type="text" value="0.3" /></td>
+				<td><button id="refractor_create" type="button">Create Refractor</button></td>
+			</tr>
+			<tr>
+				<td colspan="2"></td>
+				<td>
+					<button id="undo" type="button">Delete Previous</button>
+					<br /><button id="reset" type="button">Delete All</button>
+				</td>
+			</tr>	
+			<tr>
+				<td>Number of light rays: </td>
+				<td><input id="ray_density" type="text" value="100" /></td>
+				<td>
+					<button id="set_ray_density" type="button">Set Num Rays</button>
+					<br/><button id="move_source" type="button">Move Source</button>
+				</td>
+			</tr>
+			<tr>
+				<td>Show grid:</td>
+				<td colspan="2"><input type="checkbox" id="grid" checked /></td>
+			</tr>
+			<tr>
+				<td>Currently: </td>
+				<td colspan="2"><strong id="creating">Idle</strong></td>
+			</tr>		
+		</table>
+	</div>
+    <canvas id="workarea" width="700" height="600"></canvas>
+</body>
+</html>
