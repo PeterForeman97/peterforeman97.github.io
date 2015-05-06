@@ -26,12 +26,12 @@
     <script type="text/javascript" src="jquery-2.1.3.min.js"></script>
     <script type="text/javascript" src="paper-full.js"></script>
 	<script type="text/javascript">
-		// set mouse speed to up to 200 frames per second
+		// set mouse handling speed to up to 200 times per second
 		var updateSpeed = 1000/200; 
 	</script>
 	<!--[if IE]>
 	<script type="text/javascript">
-		// set mouse speed to up to 40 frames per second in internet explorer only
+		// set mouse handling speed to up to 40 times per second in internet explorer only
 		updateSpeed = 1000/40; 
 	</script>
 	<![endif]-->
@@ -89,7 +89,7 @@
 				// nearest intersection point and object intersected with
 				var nearestIntersection;
 				var nearestObject;
-				// loop continually (end condition comes later)
+				// loop continually (break statement included below when light ray has left screen)
 				while(true){
 					// reset nearest intersection values
 					nearestIntersection = null;
@@ -122,8 +122,7 @@
 							line.lastSegment.point.y - line.lastSegment.previous.point.y, 	
 							line.lastSegment.point.x - line.lastSegment.previous.point.x
 						),
-						nearestIntersection.point, // point of intersection
-						line // entire light ray
+						nearestIntersection.point // point of intersection
 					);
 					// remove end point of light ray (at this stage it is off screen)
 					line.lastSegment.remove();
@@ -131,7 +130,7 @@
 					line.add(nearestIntersection.point);
 					// place additional point (new end point) off screen along x axis
 					var end = nearestIntersection.point + new Point(view.size.width * 20, 0);
-					// rotate additional point by initial angle around start point
+					// rotate additional point by initial angle around intersection point
 					end = end.rotate(angle.angleDegrees, nearestIntersection.point);
 					// if angle is beyond 90 degrees in either direction then total internal reflection has occurred
 					if(angle.isTotalInternal){
@@ -253,7 +252,8 @@
 			// redraw light rays
 			updateLightSource();
 		};
-		Lens.prototype.getAngle = function(angleIncidence, pointOfIntersection, ray){
+		// refractive angle calculation function for lenses
+		Lens.prototype.getAngle = function(angleIncidence, pointOfIntersection){
 			// calculate distance along lens of intersection point
 			var offset = this.line.getOffsetOf(pointOfIntersection);		
 			// calculate normal to lens
@@ -266,9 +266,12 @@
 			// using ideal lens equation:
 			// tan r = (1/f)(x) + tan i	
 			// where x is the distance from the intersection point to the midpoint of the lens
+			// a multiplication by -1 is also included if the lens is logically upside down
 			var angleRefraction = Math.atan(this.diopters * (this.start.y < this.end.y ? -1 : 1) * (offset - this.line.length/2) + Math.tan(realAngleIncidence));
+			// return refracted angle object, which includes code to handle total internal reflection
 			return new RefractedAngle(angleRefraction, realAngleIncidence);
 		}
+		// remove the visible parts of this lens
 		Lens.prototype.remove = function(){
 			this.group.remove();
 		}
@@ -297,6 +300,7 @@
 			this.start = new Point(0, 0);
 			this.end = new Point(0, 0);
 		};
+		// update function for refractors (runs for each mouse movement as they are being drawn)
 		Refractor.prototype.update = function(){
 			// update line to new start and end points
 			this.line.removeSegments();
@@ -305,7 +309,8 @@
 			// redraw light rays
 			updateLightSource();
 		};
-		Refractor.prototype.getAngle = function(angleIncidence, pointOfIntersection, ray){		
+		// refractive angle calculation function for refractors
+		Refractor.prototype.getAngle = function(angleIncidence, pointOfIntersection){		
 			// calculate distance along lens of intersection point
 			var offset = this.line.getOffsetOf(pointOfIntersection);		
 			// calculate normal to lens
@@ -318,8 +323,10 @@
 			// calculate angle of refraction using Snell's law:
 			// sin r = (sin i) / n
 			var angleRefraction = Math.asin(Math.sin(realAngleIncidence) / this.refractiveIndex);
+			// return refracted angle object, which includes code to handle total internal reflection
 			return new RefractedAngle(angleRefraction, realAngleIncidence);
 		}
+		// remove the visible parts of this refractor
 		Refractor.prototype.remove = function(){
 			this.group.remove();
 		}
@@ -329,6 +336,7 @@
 			this.start = lightSourcePosition;
 			this.end = lightSourcePosition;	
 		}
+		// update function for light source (runs for each mouse movement)
 		Source.prototype.update = function(){
 			// redraw light rays
 			updateLightSource();
@@ -337,13 +345,13 @@
 		// object representing an angle of refraction, including a flag of whether the angle is the result of total internal reflection
 		function RefractedAngle(angleRefraction, angleIncidence){
 			this.isTotalInternal = false;
-			// Math.asin returns NaN when a value is out of range, which is also when total internal reflection applies
+			// Math.asin and Math.atan return NaN when a value is out of range, which is also when total internal reflection applies
 			if(isNaN(angleRefraction)){
-				// update angle of refraction with reflection of angle of incidence
+				// replace angle of refraction with reflection of angle of incidence
 				angleRefraction = angleIncidence * -1 + Math.PI;
 				this.isTotalInternal = true;
 			}
-			// store refraction angle in both degrees and radians forms
+			// store refraction angle in both degrees and radians
 			this.angleRadians = angleRefraction;
 			this.angleDegrees = angleRefraction * toDegrees;			
 		}
@@ -384,7 +392,7 @@
 				if(lastUpdate < Date.now() - updateSpeed){
 					// set the end point of the object to the position of the mouse cursor
 					currentObject.end = event.point;
-					// set the x position of the end point to match the start x position, so that all objects are vertical lines
+					// set the x position of the end point to match the start x position, so that all objects are vertical lines, only when not moving the light source position which can be placed anywhere
 					if(!(currentObject instanceof Source))
 						currentObject.end.x = currentObject.start.x;
 					// update object with new position and redraw light rays accordingly
@@ -440,7 +448,9 @@
 		});
 		
 		$("#grid").on('change', function(){
+			// set grid group to visible if checkbox is checked and invisible if not
 			grid.visible = this.checked;
+			// redraw light rays
 			updateLightSource();
 		});
 
@@ -457,22 +467,12 @@
 		});
 
 		// make pressing enter when typing in an input field trigger the associated button to be clicked
-		$("#ray_density").keyup(function(e){
+		$("input[type=text]").keyup(function(e){
 			if(e.keyCode === 13){
-				$("#set_ray_density").click();
+				// look up button element ID based on data-button-id attribute
+				$("#"+$(this).data("buttonId")).click();
 			}
-		});
-		$("#lens_focal_length").keyup(function(e){
-			if(e.keyCode === 13){
-				$("#lens_create").click();
-			}
-		});
-		$("#refractor_index").keyup(function(e){
-			if(e.keyCode === 13){
-				$("#refractor_create").click();
-			}
-		});
-		
+		});		
 	</script>
 </head>
 <body>
@@ -480,12 +480,12 @@
 		<table>
 			<tr>
 				<td>Focal length: </td>
-				<td><input id="lens_focal_length" type="text" value="100" /></td>
+				<td><input id="lens_focal_length" type="text" value="100" data-button-id="lens_create" /></td>
 				<td><button id="lens_create" type="button">Create Ideal Lens</button></td>
 			</tr>
 			<tr>
 				<td>Refractive Index: </td>
-				<td><input id="refractor_index" type="text" value="0.3" /></td>
+				<td><input id="refractor_index" type="text" value="0.3" data-button-id="refractor_create" /></td>
 				<td><button id="refractor_create" type="button">Create Refractor</button></td>
 			</tr>
 			<tr>
@@ -497,7 +497,7 @@
 			</tr>	
 			<tr>
 				<td>Number of light rays: </td>
-				<td><input id="ray_density" type="text" value="100" /></td>
+				<td><input id="ray_density" type="text" value="100" data-button-id="set_ray_density" /></td>
 				<td>
 					<button id="set_ray_density" type="button">Set Num Rays</button>
 					<br/><button id="move_source" type="button">Move Source</button>
